@@ -13,10 +13,16 @@ The container carries three toolchains:
   pre-built once and shipped as a release asset — the container
   downloads it on first run instead of rebuilding
 
-`sccache` wraps every compiler; `scons`' own `cache_path=` catches
-whole-object hits above that. Both caches live on the host under
-`~/.cache/crossbuild-fedora/{sccache,scons}` and are bind-mounted in,
-so the caches survive container rebuilds.
+`sccache` wraps every compiler and, when Bao supplies Tigris
+credentials, writes to the shared `weftspun-sccache` S3 bucket
+(20 GB cap) so every desk pulls from the same object cache. The
+local `~/.cache/crossbuild-fedora/sccache` disk stays as the
+offline fallback. `scons`' own `cache_path=` catches whole-object
+hits above sccache, on the same host cache dir.
+
+Fetch is automatic: with `BAO_ADDR` + `BAO_TOKEN` in the shell,
+`build.sh` reads `secret/tigris/sccache` and passes the AWS env
+into podman. Without them, the local disk cache is used silently.
 
 ## Where the image lives
 

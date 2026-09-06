@@ -24,6 +24,23 @@ IMAGE="ghcr.io/v-sekai-fabric/crossbuild-fedora:latest"
 HOST_CACHE=$HOME/.cache/crossbuild-fedora
 mkdir -p "$HOST_CACHE/sccache" "$HOST_CACHE/scons" "$HOST_CACHE/osxcross"
 
+# Pull Tigris sccache credentials from Bao if the host has Bao
+# access. Missing creds fall back to the local disk cache silently —
+# offline builds still work, they just don't share the pool.
+BAO_ENV=""
+if [ -n "${BAO_ADDR:-}" ] && [ -n "${BAO_TOKEN:-}" ] && command -v bao >/dev/null; then
+  if secret_json=$(bao kv get -format=json secret/tigris/sccache 2>/dev/null); then
+    BAO_ENV=$(python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())['data']['data']
+for k in ('AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_ENDPOINT_URL_S3','AWS_REGION','SCCACHE_BUCKET'):
+    if k in d: print(f'-e {k}={d[k]}')
+" <<< "$secret_json" | tr '\n' ' ')
+    echo "sccache -> Tigris (bucket: $(jq -r '.data.data.SCCACHE_BUCKET' <<< "$secret_json"), cap: $(jq -r '.data.data.CACHE_CAP_GB' <<< "$secret_json") GB)"
+  fi
+fi
+[ -z "$BAO_ENV" ] && echo "sccache -> local disk ($HOST_CACHE/sccache) — no Bao creds fetched"
+
 # Pull the published image from ghcr.io. Fall back to a local build
 # only when the pull fails — the ghcr image is the reference, a local
 # build is the escape hatch for offline / pre-publish work.
@@ -68,7 +85,8 @@ podman run --rm -it \
   -v "$HOST_CACHE/scons":/cache/scons \
   -v "$HOST_CACHE/osxcross":/opt/osxcross:ro \
   -e OSXCROSS_ROOT=/opt/osxcross \
-  -e PATH=/opt/osxcross/bin:/usr/local/bin:/usr/bin:/bin \
+  -e PATH=/home/linuxbrew/.linuxbrew/bin:/opt/osxcross/bin:/usr/local/bin:/usr/bin:/bin \
+  $BAO_ENV \
   "$IMAGE" -c "
     sccache --start-server || true
     sccache --show-stats | head -6
