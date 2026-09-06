@@ -42,6 +42,11 @@ SDK_TARBALL=$(ls MacOSX*.sdk.tar.* | head -1)
 [ -n "$SDK_TARBALL" ] || { echo "SDK extraction failed" >&2; exit 1; }
 mv "$SDK_TARBALL" tarballs/
 
+# osxcross itself must be built with clang (cctools-port refuses gcc);
+# unset the sccache/gcc ENV from the Containerfile for this bootstrap
+# only. The sccache-gcc wrap is for godot builds, not the toolchain.
+unset CC CXX
+export CC=clang CXX=clang++
 UNATTENDED=1 SDK_VERSION=$(echo "$SDK_TARBALL" | sed -E "s/MacOSX([0-9.]+).sdk.*/\1/") \
   ./build.sh
 UNATTENDED=1 ./build_compiler_rt.sh || true
@@ -58,8 +63,25 @@ tar --zstd -C /opt -cf "$TAR" osxcross
 ls -lh "$TAR"
 '
 
+sync
+sleep 3
 TAR=$(ls "$WORK/out"/osxcross-*.tar.zst | head -1)
 [ -f "$TAR" ] || { echo "Package build did not produce a tarball" >&2; exit 1; }
+# Materialise the tarball on plain host FS before the gh calls; Docker
+# Desktop's virtiofs on Windows can lose bind-mount contents between
+# container exit and a later stat. Keeping the copy in HOME survives.
+STABLE=$HOME/osxcross-release-staging
+mkdir -p "$STABLE"
+cp -f "$TAR" "$STABLE/"
+TAR="$STABLE/$(basename "$TAR")"
+[ -f "$TAR" ] || { echo "Copy to $STABLE failed" >&2; exit 1; }
+echo "Staged for upload: $TAR ($(stat -c '%s' "$TAR") bytes)"
+# gh CLI on Windows is a native binary; it resolves paths via
+# filepath.Glob which does not translate POSIX /c/... into C:\...
+# On Git-Bash use cygpath; on real Linux this branch is skipped.
+if command -v cygpath >/dev/null 2>&1; then
+    TAR=$(cygpath -w "$TAR")
+fi
 
 # Rolling dev-latest release. Delete the prior asset with this name so
 # the upload does not collide; the tag stays pointed at the newest push.

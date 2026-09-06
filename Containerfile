@@ -12,7 +12,8 @@ FROM registry.fedoraproject.org/fedora:41
 RUN dnf -y install \
       gcc gcc-c++ clang lld llvm cmake make scons pkgconf-pkg-config \
       python3 python3-pip \
-      zstd git-core xz xar cpio \
+      zstd git-core xz xar cpio patch \
+      libxml2-devel openssl-devel libuuid-devel bzip2-devel \
       mingw64-gcc mingw64-gcc-c++ mingw64-winpthreads-static \
       mingw64-pkg-config \
       libX11-devel libXcursor-devel libXinerama-devel libXrandr-devel \
