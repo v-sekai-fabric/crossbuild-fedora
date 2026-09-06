@@ -12,7 +12,7 @@ FROM registry.fedoraproject.org/fedora:41
 RUN dnf -y install \
       gcc gcc-c++ clang lld llvm cmake make scons pkgconf-pkg-config \
       python3 python3-pip \
-      sccache zstd git-core xz xar \
+      zstd git-core xz xar cpio \
       mingw64-gcc mingw64-gcc-c++ mingw64-winpthreads-static \
       mingw64-pkg-config \
       libX11-devel libXcursor-devel libXinerama-devel libXrandr-devel \
@@ -20,8 +20,17 @@ RUN dnf -y install \
       alsa-lib-devel pulseaudio-libs-devel systemd-devel \
       yasm nasm \
       libstdc++-static \
-      curl-minimal ca-certificates jq \
+      ca-certificates jq \
     && dnf clean all
+
+# sccache is not in Fedora repos; pull the upstream x86_64 tarball
+# from its GitHub release. Pin the version so a rebuild doesn't drift.
+ARG SCCACHE_VERSION=0.8.2
+RUN curl -fsSL -o /tmp/sccache.tgz \
+      "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+    && tar -xzf /tmp/sccache.tgz -C /tmp \
+    && install -m 0755 /tmp/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache /usr/local/bin/sccache \
+    && rm -rf /tmp/sccache.tgz /tmp/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl
 
 # Where the packaged osxcross toolchain lands on first use.
 ENV OSXCROSS_ROOT=/opt/osxcross \
