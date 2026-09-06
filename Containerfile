@@ -23,26 +23,37 @@ RUN dnf -y install \
       ca-certificates jq \
     && dnf clean all
 
-# sccache is not in Fedora repos; pull the upstream x86_64 tarball
-# from its GitHub release. Pin the version so a rebuild doesn't drift.
-ARG SCCACHE_VERSION=0.8.2
-RUN curl -fsSL -o /tmp/sccache.tgz \
-      "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-    && tar -xzf /tmp/sccache.tgz -C /tmp \
-    && install -m 0755 /tmp/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache /usr/local/bin/sccache \
-    && rm -rf /tmp/sccache.tgz /tmp/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl
+# sccache comes from Homebrew on Linux — the workspace convention is
+# `brew install sccache` on both macOS and Linux desks, so this
+# container matches. Homebrew requires a non-root user, so we set up
+# a `builder` user and put brew's shims first on PATH.
+RUN dnf -y install procps-ng file which sudo shadow-utils \
+    && dnf clean all \
+    && useradd -m -u 1000 -s /bin/bash builder \
+    && echo "builder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/builder
+
+USER builder
+WORKDIR /home/builder
+RUN NONINTERACTIVE=1 /bin/bash -c \
+      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+    && /home/linuxbrew/.linuxbrew/bin/brew install sccache
+
+USER root
 
 # Where the packaged osxcross toolchain lands on first use.
 ENV OSXCROSS_ROOT=/opt/osxcross \
-    PATH=/opt/osxcross/bin:/usr/local/bin:/usr/bin:/bin
+    PATH=/home/linuxbrew/.linuxbrew/bin:/opt/osxcross/bin:/usr/local/bin:/usr/bin:/bin
 
 # Cache mount points — bound in by scripts/build.sh from the host.
 RUN mkdir -p /cache/sccache /cache/scons /work /opt/osxcross
 VOLUME ["/cache/sccache", "/cache/scons", "/work"]
 
-# sccache wraps the compiler for every platform. Scons cache lives on
-# the same host under /cache/scons and is passed to scons via
-# cache_path= in the build entrypoint.
+# sccache wraps the compiler for every platform. When the Tigris
+# env vars are supplied (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+# / AWS_ENDPOINT_URL_S3 / SCCACHE_BUCKET) sccache writes to the
+# shared S3 bucket instead of the local /cache/sccache disk; the
+# disk path stays as the offline fallback. Bucket cap is enforced
+# on the Tigris side (20 GB per the operator's directive).
 ENV SCCACHE_DIR=/cache/sccache \
     SCCACHE_CACHE_SIZE=20G \
     CC="sccache gcc" \
